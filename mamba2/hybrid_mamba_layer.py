@@ -1,4 +1,3 @@
-
 # Copyright (c) 2024, Tri Dao, Albert Gu.
 
 import math
@@ -126,16 +125,30 @@ class Mamba2(nn.Module, PyTorchModelHubMixin):
                                                 process_group=self.process_group, sequence_parallel=self.sequence_parallel,
                                                 **factory_kwargs)
 
-        conv_dim = self.d_inner + self.d_xb + self.d_xb
-        self.conv1d = nn.Conv1d(
-            in_channels=conv_dim,
-            out_channels=conv_dim,
-            bias=conv_bias,
-            kernel_size=d_conv,
-            groups=conv_dim,
-            padding=d_conv - 1,
-            **factory_kwargs,
-        )
+        # conv_dim = self.d_ssm + 2 * self.ngroups * self.d_state
+
+        if self.repeat_kv_before_conv:
+            conv_dim = self.d_inner + self.d_inner + self.d_inner
+            self.conv1d = nn.Conv1d(
+                in_channels=conv_dim,
+                out_channels=conv_dim,
+                bias=conv_bias,
+                kernel_size=d_conv,
+                groups=conv_dim,
+                padding=d_conv - 1,
+                **factory_kwargs,
+            )
+        else:
+            conv_dim = self.d_inner + self.d_xb + self.d_xb
+            self.conv1d = nn.Conv1d(
+                in_channels=conv_dim,
+                out_channels=conv_dim,
+                bias=conv_bias,
+                kernel_size=d_conv,
+                groups=conv_dim,
+                padding=d_conv - 1,
+                **factory_kwargs,
+            )
         
         if self.conv_init is not None:
             nn.init.uniform_(self.conv1d.weight, -self.conv_init, self.conv_init)
@@ -216,6 +229,19 @@ class Mamba2(nn.Module, PyTorchModelHubMixin):
             dim=-1
         )
 
+        if self.repeat_kv_before_conv:
+            x, B, C = torch.split(xBC, [self.d_xb, self.d_xb, self.ngroups * self.d_state], dim=-1)
+            # minic the GQA
+            x = rearrange(x, "b l (xb_group dstate) -> b xb_group l dstate", dstate=self.d_state)
+            x = repeat_kv(x, self.repeat_group)
+            # x shape: (bsz, n_group, l, dim)
+            B = rearrange(B, "b l (xb_group dstate) -> b xb_group l dstate", dstate=self.d_state)
+            B = repeat_kv(B, self.repeat_group)
+            # combine x, B, C
+            x = rearrange(x, "b g l p -> b l (g p)")
+            B = rearrange(B, "b g l p -> b l (g p)")
+            xBC = torch.cat((x, B, C), dim=-1)
+
         if conv_state is not None:
             if cu_seqlens is None:
                 # If we just take xBC[:, :, -self.d_conv :], it will error if seqlen < self.d_conv
@@ -244,37 +270,59 @@ class Mamba2(nn.Module, PyTorchModelHubMixin):
                 activation=self.activation,
                 seq_idx=seq_idx,
             ).transpose(1, 2)
-            
-        # self.d_xb + self.d_xb + self.d_inner
-        x, B, C = torch.split(xBC, [self.d_xb, self.d_xb, self.ngroups * self.d_state], dim=-1)
         
-        # minic the GQA
-        x = rearrange(x, "b l (xb_group dstate) -> b xb_group l dstate", dstate=self.d_state)
-        x = repeat_kv(x, self.repeat_group)
-        # x shape: (bsz, n_group, l, dim)
-        
-        B = rearrange(B, "b l (xb_group dstate) -> b xb_group l dstate", dstate=self.d_state)
-        B = repeat_kv(B, self.repeat_group)
+        if self.repeat_kv_before_conv:
+            x, B, C = torch.split(xBC, [self.ngroups * self.d_state, self.ngroups * self.d_state, self.ngroups * self.d_state], dim=-1)
 
-        y = mamba_chunk_scan_combined(
-            # rearrange(x, "b l (h p) -> b l h p", p=self.headdim),
-            rearrange(x, "b g l p -> b l g p"),
-            dt,
-            A,
-            # rearrange(B, "b l (g n) -> b l g n", g=self.ngroups),
-            rearrange(B, "b g l n -> b l g n"),
-            rearrange(C, "b l (g n) -> b l g n", g=self.ngroups),
-            chunk_size=self.chunk_size,
-            D=rearrange(self.D, "(h p) -> h p", p=self.headdim) if self.D_has_hdim else self.D,
-            z=rearrange(z, "b l (h p) -> b l h p", p=self.headdim) if not self.rmsnorm else None,
-            dt_bias=self.dt_bias,
-            dt_softplus=True,
-            seq_idx=seq_idx,
-            cu_seqlens=cu_seqlens,
-            **dt_limit_kwargs,
-            return_final_states=ssm_state is not None,
-            return_varlen_states=cu_seqlens is not None and inference_params is not None,
-        )
+            y = mamba_chunk_scan_combined(
+                rearrange(x, "b l (h p) -> b l h p", p=self.headdim),
+                dt,
+                A,
+                rearrange(B, "b l (g n) -> b l g n", g=self.ngroups),
+                rearrange(C, "b l (g n) -> b l g n", g=self.ngroups),
+                chunk_size=self.chunk_size,
+                D=rearrange(self.D, "(h p) -> h p", p=self.headdim) if self.D_has_hdim else self.D,
+                z=rearrange(z, "b l (h p) -> b l h p", p=self.headdim) if not self.rmsnorm else None,
+                dt_bias=self.dt_bias,
+                dt_softplus=True,
+                seq_idx=seq_idx,
+                cu_seqlens=cu_seqlens,
+                **dt_limit_kwargs,
+                return_final_states=ssm_state is not None,
+                return_varlen_states=cu_seqlens is not None and inference_params is not None,
+            )
+
+        else:
+            # self.d_xb + self.d_xb + self.d_inner
+            x, B, C = torch.split(xBC, [self.d_xb, self.d_xb, self.ngroups * self.d_state], dim=-1)
+            
+            # minic the GQA
+            x = rearrange(x, "b l (xb_group dstate) -> b xb_group l dstate", dstate=self.d_state)
+            x = repeat_kv(x, self.repeat_group)
+            # x shape: (bsz, n_group, l, dim)
+            
+            B = rearrange(B, "b l (xb_group dstate) -> b xb_group l dstate", dstate=self.d_state)
+            B = repeat_kv(B, self.repeat_group)
+            
+            y = mamba_chunk_scan_combined(
+                # rearrange(x, "b l (h p) -> b l h p", p=self.headdim),
+                rearrange(x, "b g l p -> b l g p"),
+                dt,
+                A,
+                # rearrange(B, "b l (g n) -> b l g n", g=self.ngroups),
+                rearrange(B, "b g l n -> b l g n"),
+                rearrange(C, "b l (g n) -> b l g n", g=self.ngroups),
+                chunk_size=self.chunk_size,
+                D=rearrange(self.D, "(h p) -> h p", p=self.headdim) if self.D_has_hdim else self.D,
+                z=rearrange(z, "b l (h p) -> b l h p", p=self.headdim) if not self.rmsnorm else None,
+                dt_bias=self.dt_bias,
+                dt_softplus=True,
+                seq_idx=seq_idx,
+                cu_seqlens=cu_seqlens,
+                **dt_limit_kwargs,
+                return_final_states=ssm_state is not None,
+                return_varlen_states=cu_seqlens is not None and inference_params is not None,
+            )
 
         if ssm_state is not None:
             y, last_state, *rest = y
@@ -342,7 +390,6 @@ class Mamba2(nn.Module, PyTorchModelHubMixin):
         # B = rearrange(B, "b (g n) -> b g n", g=self.ngroups)
         C = rearrange(C, "b (g n) -> b g n", g=self.ngroups)
         # x_reshaped = rearrange(x, "b (h p) -> b h p", p=self.headdim)
-
         if not self.rmsnorm:
             z = rearrange(z, "b (h p) -> b h p", p=self.headdim)
         y = selective_state_update(

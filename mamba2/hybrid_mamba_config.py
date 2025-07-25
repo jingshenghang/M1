@@ -1,6 +1,6 @@
-
 from dataclasses import dataclass, field
 from typing import List
+
 
 @dataclass
 class MambaConfig:
@@ -14,3 +14,9 @@ class MambaConfig:
     hidden_act: str = "silu"
     n_layer: int = 32
     attn_layers: List[int] = field(default_factory=list)
+
+    num_experts: int = None
+    norm_topk_prob: int = None
+    hidden_size: int = d_model
+    moe_intermediate_size: int = None
+    num_experts_per_tok: int = None

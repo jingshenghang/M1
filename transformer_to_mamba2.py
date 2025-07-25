@@ -185,7 +185,7 @@ def main():
     d_inner = args.expand * d_model
     head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
     d_xb = config.num_key_value_heads * head_dim
-    ssm_cfg = {"expand": args.expand, "ngroups": 4}
+    ssm_cfg = {"expand": args.expand, "ngroups": config.num_attention_heads}
 
     mamba_config = MambaConfig(
         d_model=config.hidden_size,

@@ -183,7 +183,7 @@ def main():
     # Calculate derived dimensions for the Mamba configuration
     d_model = config.hidden_size
     d_inner = args.expand * d_model
-    head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
+    head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads) #new add
     d_xb = config.num_key_value_heads * head_dim
     ssm_cfg = {"expand": args.expand, "ngroups": config.num_attention_heads}
 

@@ -48,12 +48,7 @@ class MambaDecoderLayer(nn.Module):
         if config.num_experts is not None and config.num_experts > 1:
             self.mlp = Qwen3MoeSparseMoeBlock(config)
         else:
-            self.mlp = MLP(
-                config.d_model,
-                config.intermediate_size,
-                config.hidden_act,
-                **factory_kwargs
-            )
+            self.mlp = MLP(config)
         self.input_layernorm = RMSNorm(config.d_model, eps=config.rms_norm_eps)
         self.post_attention_layernorm = RMSNorm(config.d_model, eps=config.rms_norm_eps)
         self.residual_in_fp32 = True

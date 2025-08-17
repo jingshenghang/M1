@@ -197,11 +197,11 @@ def main():
         hidden_act=config.hidden_act,
         n_layer=config.num_hidden_layers,
         attn_layers=attn_layers,
-        num_experts=config.num_experts,
-        num_experts_per_tok=config.num_experts_per_tok,
-        norm_topk_prob=config.norm_topk_prob,
+        # num_experts=config.num_experts,
+        # num_experts_per_tok=config.num_experts_per_tok,
+        # norm_topk_prob=config.norm_topk_prob,
         hidden_size=config.hidden_size,
-        moe_intermediate_size=config.moe_intermediate_size,
+        # moe_intermediate_size=config.moe_intermediate_size,
     )
 
     logging.info("Starting layer conversion...")

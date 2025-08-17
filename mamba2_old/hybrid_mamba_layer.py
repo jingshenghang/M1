@@ -50,7 +50,7 @@ class Mamba2(nn.Module, PyTorchModelHubMixin):
         d_model,
         d_xb,
         d_inner=None,
-        d_state=128,
+        d_state=64,
         d_conv=4,
         conv_init=None,
         expand=2,

@@ -6,8 +6,8 @@ import os
 import torch
 from transformers import AutoModelForCausalLM
 from transformers import AutoTokenizer
-from mamba2_old.hybrid_mamba_config import MambaConfig
-from mamba2_old.hybrid_model import MambaDecoderLayer
+from mamba2.hybrid_mamba_config import MambaConfig
+from mamba2.hybrid_model import MambaDecoderLayer, MHADecoderLayer
 from tqdm import tqdm
 
 
@@ -91,6 +91,41 @@ def convert_layers(
         # logging.info("Converting layer %d...", layer_idx)
         # Fetch the layer module for easier access
         layer_module = transformer.model.layers._modules[f"{layer_idx}"]
+
+        if layer_idx in attn_layers:
+            # Use MHADecoderLayer for the specified attention layers
+            attn_encoder = MHADecoderLayer(
+                config,
+                layer_idx,
+                device="cpu",
+                dtype=torch_dtype,
+            )
+
+            q_weight = layer_module.self_attn.q_proj.weight
+            k_weight = layer_module.self_attn.k_proj.weight
+            v_weight = layer_module.self_attn.v_proj.weight
+            o_weight = layer_module.self_attn.o_proj.weight
+
+            attn_encoder.mha.in_proj.weight.data[:q_dim, :].copy_(q_weight)
+            attn_encoder.mha.in_proj.weight.data[q_dim : q_dim + kv_dim, :].copy_(k_weight)
+            attn_encoder.mha.in_proj.weight.data[q_dim + kv_dim :, :].copy_(v_weight)
+            attn_encoder.mha.out_proj.weight.data.copy_(o_weight)
+
+            attn_encoder.mlp.load_state_dict(layer_module.mlp.state_dict())
+            attn_encoder.input_layernorm.load_state_dict(layer_module.input_layernorm.state_dict())
+            attn_encoder.post_attention_layernorm.load_state_dict(layer_module.post_attention_layernorm.state_dict())
+            
+            if attn_bias:
+                q_bias = layer_module.self_attn.q_proj.bias
+                k_bias = layer_module.self_attn.k_proj.bias
+                v_bias = layer_module.self_attn.v_proj.bias
+
+                attn_encoder.mha.in_proj.bias.data[:q_dim].copy_(q_bias)
+                attn_encoder.mha.in_proj.bias.data[q_dim : q_dim + kv_dim].copy_(k_bias)
+                attn_encoder.mha.in_proj.bias.data[q_dim + kv_dim :].copy_(v_bias)
+
+            transformer.model.layers[layer_idx] = attn_encoder
+
         if layer_idx not in attn_layers:
             # Use MambaDecoderLayer for the remaining layers
             mamba_encoder = MambaDecoderLayer(
@@ -185,7 +220,7 @@ def main():
     d_inner = args.expand * d_model
     head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads) #new add
     d_xb = config.num_key_value_heads * head_dim
-    ssm_cfg = {"expand": args.expand, "ngroups": config.num_attention_heads}
+    ssm_cfg = {"expand": args.expand, "ngroups": config.num_attention_heads, "d_state": head_dim}
 
     mamba_config = MambaConfig(
         d_model=config.hidden_size,
@@ -200,7 +235,7 @@ def main():
         # num_experts=config.num_experts,
         # num_experts_per_tok=config.num_experts_per_tok,
         # norm_topk_prob=config.norm_topk_prob,
-        hidden_size=config.hidden_size,
+        # hidden_size=config.hidden_size,
         # moe_intermediate_size=config.moe_intermediate_size,
     )
 

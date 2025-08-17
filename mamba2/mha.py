@@ -33,7 +33,7 @@ try:
 except ImportError:
     FusedDense, ColumnParallelLinear, RowParallelLinear = None, None, None
 
-from verl.models.mamba.rotary import RotaryEmbedding
+from mamba.rotary import RotaryEmbedding
 
 # From https://github.com/ofirpress/attention_with_linear_biases/blob/4b92f28a005ead2567abe2359f633e73e08f3833/fairseq/models/transformer.py#L742
 def get_alibi_slopes(nheads):

@@ -1,4 +1,5 @@
-from mamba_ssm.ops.triton.layer_norm import RMSNorm
+# from mamba_ssm.ops.triton.layer_norm import RMSNorm
+from mamba2_old.rmsnorm import RMSNorm
 from torch import Tensor
 from transformers.activations import ACT2FN
 from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeSparseMoeBlock

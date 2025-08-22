@@ -1,4 +1,5 @@
-from mamba_ssm.ops.triton.layer_norm import RMSNorm
+# from mamba_ssm.ops.triton.layer_norm import RMSNorm
+from mamba2.rmsnorm import RMSNorm
 from torch import Tensor
 from transformers.activations import ACT2FN
 

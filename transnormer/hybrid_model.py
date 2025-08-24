@@ -7,6 +7,7 @@ from typing import List, Optional, Tuple, Union
 from transnormer.hybrid_transnormer_config import TransnormerConfig
 from transformers import LlamaConfig
 from transnormer.hybrid_transnormer_layer import NormLinearAttention
+from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeSparseMoeBlock
 
 import torch
 import torch.nn as nn
@@ -73,7 +74,8 @@ class TransnormerDecoderLayer(nn.Module):
         self.hidden_size = config.hidden_size
         self.self_attn = NormLinearAttention(config=config, layer_idx=layer_idx)
 
-        self.mlp = LlamaMLP(config)
+        # self.mlp = LlamaMLP(config)
+        self.mlp = Qwen3MoeSparseMoeBlock(config)
         self.input_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 

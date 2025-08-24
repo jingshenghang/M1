@@ -109,14 +109,16 @@ class NormLinearAttention(nn.Module):
                 f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
                 f" and `num_heads`: {self.num_heads})."
             )
+        expands = 2
+        self.head_dim = self.hidden_size // self.num_heads * expands # Qwen3 version
 
         # set bias True to match Qwen
-        self.q_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=True)
+        self.q_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=False)
         # self.k_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=True)
         # self.v_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=True)
-        self.k_proj = nn.Linear(config.hidden_size, self.num_key_value_heads * self.head_dim, bias=True)
-        self.v_proj = nn.Linear(config.hidden_size, self.num_key_value_heads * self.head_dim, bias=True)
-        self.o_proj = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+        self.k_proj = nn.Linear(config.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
+        self.v_proj = nn.Linear(config.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
+        self.o_proj = nn.Linear(self.hidden_size * expands, self.hidden_size, bias=False)
 
         self.normalize = SimpleRMSNorm(self.intermediate_size)     
         self.act_fn = ACT2FN["silu"]
